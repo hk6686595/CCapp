@@ -8,7 +8,6 @@ from logging.handlers import RotatingFileHandler
 from network_utils import ping_test
 from logger_config import setup_logger
 import os
-# 配置日志
 
 
 # 创建日志记录器
@@ -80,9 +79,11 @@ class ControlServer:
                     if message.startswith("状态信息:"):
                         info = message[5:].strip()
                         self.parse_and_save_client_info(info)
+                    elif message == "OK":
+                        logger.info(f"客户端 {client_address} 响应测试: OK")
+                        print(f"客户端 {client_address} 响应测试: OK")
                     
                     self.last_seen[client_address] = time.time()
-                    # self.broadcast(f"收到")
                 except UnicodeDecodeError:
                     # 如果无法解码，可能是日志文件的开始部分
                     print('开始接收日志（检测到二进制数据）')
@@ -123,8 +124,7 @@ class ControlServer:
                 print(f"向客户端发送消息时出错: {e}")
                 self.clients.remove(client)
 
-    def send_command(self, command):
-        self.broadcast(f"命令: {command}")
+
 
     def stop(self):
         self.running = False
@@ -183,7 +183,9 @@ class ControlServer:
             log_file.write(log_content)
         logger.info(f"已保存客户端 {client_address} 的日志文件: {log_filename}")
         print(f"已保存客户端 {client_address} 的日志文件: {log_filename}")
-
+    def bocast(self,message):
+        for ip in self.client_sockets.keys():
+            self.send_to_client(ip, message)
     def send_to_client(self, ip, message):
         """
         向指定 IP 的客户端发送消息
@@ -192,7 +194,7 @@ class ControlServer:
             try:
                 self.client_sockets[ip].send(message.encode('utf-8'))
                 logger.info(f"已发送消息到客户端 {ip}: {message}")
-                print(f"已发送消息到客户端 {ip}: {message}")
+                print(f"已发送消息到客户端 {ip}: {message}\n")
             except Exception as e:
                 logger.error(f"向客户端 {ip} 发送消息时出错: {e}")
                 print(f"向客户端 {ip} 发送消息时出错: {e}")
@@ -203,16 +205,58 @@ class ControlServer:
         else:
             logger.warning(f"客户端 {ip} 不在线或未连接")
             print(f"客户端 {ip} 不在线或未连接")
+    def handle_comd_withip(self,command):
+         parts = command.split(' ', 1)
+         if len(parts) == 2:
+            ip = parts[1]
+            self.send_to_client(ip,command)
+        
+    def show_online_clients(self):
+        print("\n当前在线客户端信息:")
+        print("--------------------")
+        online_count = 0
+        for key, info in self.client_info.items():
+            ip = info['ip']
+            last_seen = self.last_seen.get(ip, 0)
+            if time.time() - last_seen < 10:  # 10秒内有消息则认为在线
+                online_count += 1
+                print(f"IP地址: {ip}")
+                print(f"展品名称: {info['project_name']}")
+                print(f"最后活动时间: {datetime.datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S')}")
+                print("--------------------")
+        
+        if online_count == 0:
+            print("当前没有在线的客户端")
+        else:
+            print(f"共有 {online_count} 个客户端在线")
+        print()  # 为了美观，在最后添加一个空行 
 
+   
 def main():
     server = ControlServer()
     server.start()
 
-    print("输入 'quit' 来停止服务器，输入 'save' 来保存客户端信息，输入 'show' 来显示客户端信息")
-    print("输入 'test <IP>' 来测试指定IP的设备是否在线")
-    print("输入 'ping <IP>' 来使用 ping 测试指定IP的设备是否在线")
-    print("输入 'send <IP> <message>' 来向指定IP的客户端发送消息")
-    
+    help_message = """
+可用命令:
+quit - 停止服务器
+save - 保存客户端信息
+show - 显示所有客户端信息
+show-online - 显示在线客户端信息
+test <IP> - 测试指定IP的设备是否在线
+test-all - 测试所有在线设备
+get <IP> - 获取指定IP的设备状态
+get-all - 获取所有在线设备的状态
+hello-all - 向所有在线设备发送hello指令
+shutdown-all - 向所有在线设备发送关机指令
+reboot-all - 向所有在线设备发送重启指令
+sleep-all - 向所有在线设备发送睡眠指令
+cancel-all - 向所有在线设备发送取消关机/重启指令
+ping <IP> - 使用ping测试指定IP的设备是否在线
+help - 显示此帮助信息
+"""
+
+    print(help_message)
+
     try:
         while True:
             command = input("输入命令: ")
@@ -222,24 +266,37 @@ def main():
                 server.save_client_info()
             elif command.lower() == 'show':
                 server.show_clients()
+            elif command.lower() == 'show-online':
+                server.show_online_clients()
+            elif command.lower() == 'shutdown-all':
+                server.bocast("shutdown")
+            elif command.lower() == 'reboot-all':
+                server.bocast("reboot")
+            elif command.lower() == 'sleep-all':
+                server.bocast("sleep")
+            elif command.lower() == 'cancel-all':
+                server.bocast("cancel")
+            elif command.lower() == 'hello-all':
+                server.bocast("hello")   
+            elif command.lower() == 'test-all':
+                server.bocast("test")
+            elif command.lower() == 'get-all':
+                server.bocast("get")
             elif command.lower().startswith('test '):
-                ip = command.split(' ', 1)[1]
-                server.test_client_online(ip)
+                server.handle_comd_withip(command)
+            elif command.lower().startswith('get '):
+                server.handle_comd_withip(command)
             elif command.lower().startswith('ping '):
-                ip = command.split(' ', 1)[1]
-                threading.Thread(target=server.ping_test, args=(ip,)).start()
-            elif command.lower().startswith('log '):
-                ip = command.split(' ', 1)[1]
-                server.send_command(f"log {ip}")
-            elif command.lower().startswith('send '):
-                parts = command.split(' ', 2)
-                if len(parts) == 3:
-                    ip, message = parts[1], parts[2]
-                    server.send_to_client(ip, message)
+                parts = command.split(' ', 1)
+                if len(parts) == 2:
+                    ip = parts[1]
+                    threading.Thread(target=server.ping_test, args=(ip,)).start()
                 else:
-                    print("格式错误。正确格式: send <IP> <message>")
+                    print("格式错误。正确格式: ping <IP>")
+            elif command.lower() == 'help':
+                print(help_message)
             else:
-                server.send_command(command)
+                print("未知命令。输入 'help' 查看可用命令列表。")
     except KeyboardInterrupt:
         logger.info("接收到中断信号，正在关闭服务器...")
         print("\n接收到中断信号，正在关闭服务器...")

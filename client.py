@@ -52,12 +52,10 @@ class Client:
                 message = self.client_socket.recv(1024).decode('utf-8')
                 if not message:
                     raise Exception("连接已关闭")
-                print('server:',message)
+                print('recv from server raw msg :',message)
                 
                 # 处理特殊指令
-                if message.startswith("命令:"):
-                    command = message.split(":", 1)[1].strip()
-                    self.handle_command(command)
+                self.handle_command(message)
             except Exception as e:
                 logger.error(f"接收消息时出错: {e}")
                 print(f"接收消息时出错: {e}")
@@ -65,28 +63,22 @@ class Client:
                 self.reconnect()
                 break
 
-    def handle_command(self, command):
-        command_parts = command.lower().split()
-        if len(command_parts) >= 2:
-            action = command_parts[0]
-            target_ip = command_parts[1]
-            
-            if target_ip == self.client_ip:
-                if action == "shutdown":
-                    logger.info("收到关机指令，系统将在60秒后关机...")
-                    print("收到关机指令，系统将在60秒后关机...")
-                    self.shutdown_scheduled = True
-                    subprocess.run(["shutdown", "/s", "/t", "60"])
-                elif action == "reboot":
+    def handle_command(self, action):
+        if action == "shutdown":
+            logger.info("收到关机指令，系统将在60秒后关机...")
+            print("收到关机指令，系统将在60秒后关机...")
+            self.shutdown_scheduled = True
+            subprocess.run(["shutdown", "/s", "/t", "60"])
+        elif action == "reboot":
                     logger.info("收到重启指令，系统将在60秒后重启...")
                     print("收到重启指令，系统将在60秒后重启...")
                     self.shutdown_scheduled = True
                     subprocess.run(["shutdown", "/r", "/t", "60"])
-                elif action == "sleep":
+        elif action == "sleep":
                     logger.info("收到锁屏指令，系统将立即锁屏...")
                     print("收到锁屏指令，系统将立即锁屏...")
                     ctypes.windll.user32.LockWorkStation()
-                elif action == "cancel":
+        elif action == "cancel":
                     if self.shutdown_scheduled:
                         logger.info("取消关机/重启指令...")
                         print("取消关机/重启指令...")
@@ -95,23 +87,21 @@ class Client:
                     else:
                         logger.info("没有待执行的关机/重启指令")
                         print("没有待执行的关机/重启指令")
-                elif action == "get":
-                    logger.info("收到获取状态指令，立即发送状态信息...")
-                    print("收到获取状态指令，立即发送状态信息...")
+        elif action == "get":
+                    logger.info("收到get指令，立即发送状态信息...")
+                    print("收到get指令，立即发送状态信息...")
                     self.send_status()
-                else:
-                    logger.info(f"收到未知指令: {action}")
-                    print(f"收到未知指令: {action}")
-            else:
-                logger.info(f"收到针对其他IP的指令: {command}")
-                print(f"收到针对其他IP的指令: {command}")
-        elif len(command_parts) == 1 and command_parts[0] == "get":
-            logger.info("收到获取状态指令，立即发送状态信息...")
-            print("收到获取状态指令，立即发送状态信息...")
-            self.send_status()
+        elif action == "test":
+                    logger.info("收到test指令，立即响应...")
+                    print("收到test指令，立即响应...")
+                    self.send_message("OK")
+        elif action == "hello":
+                    logger.info("收到hello指令，立即响应...")
+                    print("收到hello指令，立即响应...")
+                    self.send_message("OK") 
         else:
-            logger.info(f"收到格式不正确的指令: {command}")
-            print(f"收到格式不正确的指令: {command}")
+            logger.info(f"收到未知指令: {action}")
+            print(f"收到未知指令: {action}")
 
     def reconnect(self):
         logger.info("尝试重新连接...")
